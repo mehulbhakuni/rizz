@@ -1,4 +1,4 @@
-# RZAI — AI Dating Assistant
+# RIZZ — AI Dating Assistant
 
 > AI-powered dating replies, openers & bios. Built with Next.js + Groq (free) + Supabase (free).
 

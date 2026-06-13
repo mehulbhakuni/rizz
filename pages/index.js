@@ -135,8 +135,7 @@ export default function Home() {
   const [ocrLoading, setOcrLoading] = useState(false)
   const fileRef = useRef()
 
-  const handleOCR = async (e) => {
-    const file = e.target.files[0]
+  const processImageFile = (file) => {
     if (!file) return
     setOcrLoading(true)
     const reader = new FileReader()
@@ -157,6 +156,27 @@ export default function Home() {
       setOcrLoading(false)
     }
     reader.readAsDataURL(file)
+  }
+
+  const handleOCR = (e) => {
+    const file = e.target.files[0]
+    processImageFile(file)
+  }
+
+  // Allow pasting a screenshot directly (Ctrl+V / Cmd+V) into the convo box
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) {
+          e.preventDefault()
+          processImageFile(file)
+        }
+        break
+      }
+    }
   }
 
   const generateReplies = async () => {
@@ -228,7 +248,7 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>RZAI — AI Dating Assistant</title>
+        <title>RIZZ — AI Dating Assistant</title>
         <meta name="description" content="AI-powered dating replies, openers, and bios. Get more matches." />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
         <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💘</text></svg>" />
@@ -241,10 +261,10 @@ export default function Home() {
           {/* Header */}
           <header style={s.header}>
             <div>
-              <div style={s.logo}>RZ<span style={s.logoAccent}>AI</span></div>
+              <div style={s.logo}>RI<span style={s.logoAccent}>ZZ</span></div>
               <div style={s.tagline}>Your AI Dating Coach</div>
             </div>
-            <div style={s.headerBadge}>✦ Powered by Groq</div>
+            <div style={s.headerBadge}>✦ Find your perfect reply</div>
           </header>
 
           {/* Tabs */}
@@ -275,7 +295,8 @@ export default function Home() {
               <textarea
                 value={convo}
                 onChange={e => setConvo(e.target.value)}
-                placeholder={`e.g.\nThem: hey! finally matched lol\nYou: haha right, what took you so long\nThem: okay fair, so what do you do for fun?`}
+                onPaste={handlePaste}
+                placeholder={`e.g.\nThem: hey! finally matched lol\nYou: haha right, what took you so long\nThem: okay fair, so what do you do for fun?\n\n(Tip: copy a screenshot and press Ctrl+V / Cmd+V here)`}
                 style={s.textarea}
               />
 
@@ -407,7 +428,7 @@ export default function Home() {
           )}
 
           <footer style={s.footer}>
-            Made with 💘 · Powered by Groq & Llama 3
+            Made with 💘
           </footer>
         </div>
       </div>
