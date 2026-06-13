@@ -6,7 +6,7 @@ export default async function handler(req, res) {
   const { imageBase64, mimeType } = req.body
 
   try {
-    // Use llama-3.2-11b-vision which supports images on Groq
+    // llama-3.2-11b-vision-preview was decommissioned by Groq — use llama-4-scout (vision-capable)
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -14,7 +14,7 @@ export default async function handler(req, res) {
         Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'llama-3.2-11b-vision-instruct',
+        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
         messages: [
           {
             role: 'user',
