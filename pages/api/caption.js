@@ -72,16 +72,17 @@ Respond with ONLY valid JSON, nothing else, in this exact shape:
     const songQueries = Array.isArray(parsed.songQueries) ? parsed.songQueries.slice(0, 3) : []
 
     // 3. Look up each song on Spotify (skip any that fail/miss)
-    const songResults = await Promise.all(
-      songQueries.map(async (q) => {
-        try {
-          return await searchTrack(q)
-        } catch (_) {
-          return null
-        }
-      })
-    )
-    const songs = songResults.filter(Boolean)
+    console.log("Generated song queries:", songQueries);
+
+const songResults = await Promise.all(
+  songQueries.map(query => searchTrack(query))
+);
+
+console.log("Raw Spotify results:", songResults);
+
+const songs = songResults.filter(Boolean);
+
+console.log("Filtered songs:", songs);
 
     return res.status(200).json({ captions, songs, vibe })
   } catch (e) {
