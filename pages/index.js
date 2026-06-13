@@ -16,6 +16,48 @@ const BIO_STYLES = [
   { id: 'confident',  emoji: '💪', label: 'Confident',   desc: 'Bold, no fluff'       },
 ]
 
+const LANGUAGES = [
+  { id: 'English',  emoji: '🇬🇧', label: 'English'  },
+  { id: 'Hindi',    emoji: '🇮🇳', label: 'Hindi'    },
+  { id: 'Punjabi',  emoji: '🇮🇳', label: 'Punjabi'  },
+  { id: 'Spanish',  emoji: '🇪🇸', label: 'Spanish'  },
+  { id: 'Korean',   emoji: '🇰🇷', label: 'Korean'   },
+  { id: 'Arabic',   emoji: '🇸🇦', label: 'Arabic'   },
+]
+
+// Resize + compress an image client-side before sending it to the API,
+// so multi-photo posts don't blow up the request size.
+function compressImage(file, maxDim = 1024, quality = 0.75) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new window.Image()
+      img.onload = () => {
+        let { width, height } = img
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round(height * (maxDim / width))
+            width = maxDim
+          } else {
+            width = Math.round(width * (maxDim / height))
+            height = maxDim
+          }
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+        const dataUrl = canvas.toDataURL('image/jpeg', quality)
+        resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg', dataUrl })
+      }
+      img.onerror = reject
+      img.src = e.target.result
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
 function LoadingDots() {
   return (
     <div style={{ display: 'flex', gap: 6, justifyContent: 'center', padding: '20px 0' }}>
@@ -107,6 +149,36 @@ function ReplyCard({ reply, tone, index, onFeedback, conversation, type }) {
   )
 }
 
+function SongCard({ song }) {
+  return (
+    <a href={song.url} target="_blank" rel="noopener noreferrer" className="fade-up" style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      background: 'rgba(255,255,255,0.04)',
+      border: '0.5px solid rgba(255,255,255,0.09)',
+      borderRadius: 10, padding: '10px 12px',
+      textDecoration: 'none', color: 'inherit',
+      transition: 'border-color 0.2s',
+    }}>
+      {song.albumArt ? (
+        <img src={song.albumArt} alt="" style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
+      ) : (
+        <div style={{ width: 44, height: 44, borderRadius: 6, background: 'rgba(255,255,255,0.06)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🎵</div>
+      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: '#f0eee8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.title}</div>
+        <div style={{ fontSize: 12, color: 'rgba(240,238,232,0.45)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.artist}</div>
+      </div>
+      <div style={{
+        fontSize: 11, fontWeight: 600, color: '#1ed760', flexShrink: 0,
+        padding: '4px 10px', borderRadius: 20, background: 'rgba(30,215,96,0.12)',
+        border: '0.5px solid rgba(30,215,96,0.3)', whiteSpace: 'nowrap',
+      }}>
+        ▶ Spotify
+      </div>
+    </a>
+  )
+}
+
 export default function Home() {
   const [tab, setTab] = useState('reply')
 
@@ -130,6 +202,109 @@ export default function Home() {
   const [bios, setBios] = useState([])
   const [bioLoading, setBioLoading] = useState(false)
   const [bioError, setBioError] = useState('')
+
+  // Story state (single photo)
+  const [storyImage, setStoryImage] = useState(null) // { base64, mimeType, dataUrl }
+  const [storyTone, setStoryTone] = useState('funny')
+  const [storyLanguage, setStoryLanguage] = useState('English')
+  const [storyResult, setStoryResult] = useState(null) // { captions, songs }
+  const [storyLoading, setStoryLoading] = useState(false)
+  const [storyError, setStoryError] = useState('')
+  const storyFileRef = useRef()
+
+  // Post state (multiple photos)
+  const [postImages, setPostImages] = useState([]) // [{ base64, mimeType, dataUrl }]
+  const [postTone, setPostTone] = useState('funny')
+  const [postLanguage, setPostLanguage] = useState('English')
+  const [postResult, setPostResult] = useState(null) // { captions, songs }
+  const [postLoading, setPostLoading] = useState(false)
+  const [postError, setPostError] = useState('')
+  const postFileRef = useRef()
+
+  const handleStoryImage = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setStoryResult(null)
+    setStoryError('')
+    try {
+      const img = await compressImage(file)
+      setStoryImage(img)
+    } catch (_) {
+      setStoryError('Could not read that image. Try a different one.')
+    }
+    e.target.value = ''
+  }
+
+  const handlePostImages = async (e) => {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    setPostResult(null)
+    setPostError('')
+    const remaining = 5 - postImages.length
+    const slice = files.slice(0, remaining)
+    try {
+      const compressed = await Promise.all(slice.map(f => compressImage(f)))
+      setPostImages(prev => [...prev, ...compressed])
+    } catch (_) {
+      setPostError('Could not read one of those images. Try again.')
+    }
+    e.target.value = ''
+  }
+
+  const removePostImage = (index) => {
+    setPostImages(prev => prev.filter((_, i) => i !== index))
+    setPostResult(null)
+  }
+
+  const generateStoryCaption = async () => {
+    if (!storyImage) return
+    setStoryLoading(true)
+    setStoryError('')
+    setStoryResult(null)
+    try {
+      const res = await fetch('/api/caption', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          images: [{ base64: storyImage.base64, mimeType: storyImage.mimeType }],
+          type: 'story',
+          tone: storyTone,
+          language: storyLanguage,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setStoryResult(data)
+    } catch (e) {
+      setStoryError(e.message || 'Something went wrong. Try again.')
+    }
+    setStoryLoading(false)
+  }
+
+  const generatePostCaption = async () => {
+    if (!postImages.length) return
+    setPostLoading(true)
+    setPostError('')
+    setPostResult(null)
+    try {
+      const res = await fetch('/api/caption', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          images: postImages.map(img => ({ base64: img.base64, mimeType: img.mimeType })),
+          type: 'post',
+          tone: postTone,
+          language: postLanguage,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setPostResult(data)
+    } catch (e) {
+      setPostError(e.message || 'Something went wrong. Try again.')
+    }
+    setPostLoading(false)
+  }
 
   // OCR
   const [ocrLoading, setOcrLoading] = useState(false)
@@ -273,6 +448,8 @@ export default function Home() {
               { id: 'reply',  label: '💬 Reply'  },
               { id: 'opener', label: '✨ Opener' },
               { id: 'bio',    label: '📝 Bio'    },
+              { id: 'story',  label: '🎬 Story'  },
+              { id: 'post',   label: '🖼️ Post'   },
             ].map(t => (
               <button key={t.id} onClick={() => setTab(t.id)}
                 style={{ ...s.tab, ...(tab === t.id ? s.tabActive : {}) }}>
@@ -427,6 +604,185 @@ export default function Home() {
             </div>
           )}
 
+          {/* ── STORY TAB ── */}
+          {tab === 'story' && (
+            <div>
+              <label style={s.label}>Upload your photo</label>
+              <div style={s.uploadBox} onClick={() => storyFileRef.current.click()}>
+                {storyImage ? (
+                  <>
+                    <img src={storyImage.dataUrl} alt="" style={s.previewImg} />
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setStoryImage(null); setStoryResult(null) }}
+                      style={s.removeBtn} title="Remove photo">✕</button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: 28 }}>🎬</span>
+                    <span>Tap to upload a photo for your story</span>
+                  </>
+                )}
+              </div>
+              <input ref={storyFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleStoryImage} />
+
+              <div style={s.sectionHeading}>Caption vibe</div>
+              <div style={s.toneGrid}>
+                {TONES.map(t => (
+                  <button key={t.id} onClick={() => setStoryTone(t.id)}
+                    style={{
+                      ...s.toneBtn,
+                      ...(storyTone === t.id ? {
+                        borderColor: t.color,
+                        background: t.bg,
+                        color: t.color,
+                      } : {}),
+                    }}>
+                    <span style={{ fontSize: 16 }}>{t.emoji}</span> {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={s.sectionHeading}>Song language</div>
+              <div style={s.langGrid}>
+                {LANGUAGES.map(l => (
+                  <button key={l.id} onClick={() => setStoryLanguage(l.id)}
+                    style={{
+                      ...s.langBtn,
+                      ...(storyLanguage === l.id ? {
+                        borderColor: 'rgba(255,80,130,0.45)',
+                        background: 'rgba(255,80,130,0.1)',
+                        color: '#ff8ab0',
+                      } : {}),
+                    }}>
+                    <span>{l.emoji}</span> {l.label}
+                  </button>
+                ))}
+              </div>
+
+              <button onClick={generateStoryCaption} disabled={storyLoading || !storyImage} style={s.btn}>
+                {storyLoading ? 'Analyzing photo…' : 'Get Caption & Songs ✦'}
+              </button>
+
+              {storyLoading && <LoadingDots />}
+              {storyError && <p style={s.error}>{storyError}</p>}
+
+              {storyResult && (
+                <>
+                  {storyResult.captions?.length > 0 && (
+                    <>
+                      <div style={s.sectionHeading}>Caption ideas</div>
+                      <div style={s.results}>
+                        {storyResult.captions.map((c, i) => (
+                          <ReplyCard key={i} reply={c} tone={storyTone} index={i}
+                            conversation={storyResult.vibe || ''} type="caption" />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {storyResult.songs?.length > 0 && (
+                    <>
+                      <div style={s.sectionHeading}>Song picks ({storyLanguage})</div>
+                      <div style={s.results}>
+                        {storyResult.songs.map((song, i) => (
+                          <SongCard key={i} song={song} />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── POST TAB ── */}
+          {tab === 'post' && (
+            <div>
+              <label style={s.label}>Upload your photos (up to 5)</label>
+              <div style={s.postGrid}>
+                {postImages.map((img, i) => (
+                  <div key={i} style={s.postThumb}>
+                    <img src={img.dataUrl} alt="" style={s.postThumbImg} />
+                    <button onClick={() => removePostImage(i)} style={s.removeBtn} title="Remove photo">✕</button>
+                  </div>
+                ))}
+                {postImages.length < 5 && (
+                  <button style={s.postAddBtn} onClick={() => postFileRef.current.click()}>
+                    <span style={{ fontSize: 22 }}>🖼️</span>
+                    <span>Add photo{postImages.length === 0 ? 's' : ''}</span>
+                  </button>
+                )}
+              </div>
+              <input ref={postFileRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handlePostImages} />
+
+              <div style={s.sectionHeading}>Caption vibe</div>
+              <div style={s.toneGrid}>
+                {TONES.map(t => (
+                  <button key={t.id} onClick={() => setPostTone(t.id)}
+                    style={{
+                      ...s.toneBtn,
+                      ...(postTone === t.id ? {
+                        borderColor: t.color,
+                        background: t.bg,
+                        color: t.color,
+                      } : {}),
+                    }}>
+                    <span style={{ fontSize: 16 }}>{t.emoji}</span> {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={s.sectionHeading}>Song language</div>
+              <div style={s.langGrid}>
+                {LANGUAGES.map(l => (
+                  <button key={l.id} onClick={() => setPostLanguage(l.id)}
+                    style={{
+                      ...s.langBtn,
+                      ...(postLanguage === l.id ? {
+                        borderColor: 'rgba(255,80,130,0.45)',
+                        background: 'rgba(255,80,130,0.1)',
+                        color: '#ff8ab0',
+                      } : {}),
+                    }}>
+                    <span>{l.emoji}</span> {l.label}
+                  </button>
+                ))}
+              </div>
+
+              <button onClick={generatePostCaption} disabled={postLoading || !postImages.length} style={s.btn}>
+                {postLoading ? 'Analyzing photos…' : 'Get Caption & Songs ✦'}
+              </button>
+
+              {postLoading && <LoadingDots />}
+              {postError && <p style={s.error}>{postError}</p>}
+
+              {postResult && (
+                <>
+                  {postResult.captions?.length > 0 && (
+                    <>
+                      <div style={s.sectionHeading}>Caption ideas</div>
+                      <div style={s.results}>
+                        {postResult.captions.map((c, i) => (
+                          <ReplyCard key={i} reply={c} tone={postTone} index={i}
+                            conversation={postResult.vibe || ''} type="caption" />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {postResult.songs?.length > 0 && (
+                    <>
+                      <div style={s.sectionHeading}>Song picks ({postLanguage})</div>
+                      <div style={s.results}>
+                        {postResult.songs.map((song, i) => (
+                          <SongCard key={i} song={song} />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           <footer style={s.footer}>
             Made with 💘
           </footer>
@@ -498,10 +854,11 @@ const styles = {
     background: 'rgba(255,255,255,0.04)',
     border: '0.5px solid rgba(255,255,255,0.08)',
     borderRadius: 12, padding: 4, marginBottom: 24,
+    overflowX: 'auto',
   },
   tab: {
-    flex: 1, padding: '9px 10px', borderRadius: 8, border: 'none',
-    background: 'transparent', cursor: 'pointer',
+    flex: '0 0 auto', minWidth: 76, padding: '9px 10px', borderRadius: 8, border: 'none',
+    background: 'transparent', cursor: 'pointer', whiteSpace: 'nowrap',
     fontFamily: 'DM Sans, sans-serif', fontSize: 13, fontWeight: 500,
     color: 'rgba(240,238,232,0.4)', transition: 'all 0.2s',
   },
@@ -552,6 +909,57 @@ const styles = {
     background: 'rgba(255,255,255,0.03)', cursor: 'pointer',
     fontFamily: 'DM Sans, sans-serif', transition: 'all 0.18s',
     color: 'rgba(240,238,232,0.5)',
+  },
+  langGrid: {
+    display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 16,
+  },
+  langBtn: {
+    padding: '8px 10px', borderRadius: 8,
+    border: '0.5px solid rgba(255,255,255,0.1)',
+    background: 'rgba(255,255,255,0.03)', cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif', fontSize: 12.5, fontWeight: 500,
+    color: 'rgba(240,238,232,0.5)', transition: 'all 0.18s',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+  },
+  uploadBox: {
+    width: '100%', minHeight: 140, borderRadius: 12,
+    border: '1px dashed rgba(255,255,255,0.18)',
+    background: 'rgba(255,255,255,0.02)', cursor: 'pointer',
+    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    gap: 6, color: 'rgba(240,238,232,0.4)', fontFamily: 'DM Sans, sans-serif',
+    fontSize: 13, transition: 'border-color 0.2s', marginBottom: 16,
+    overflow: 'hidden', position: 'relative',
+  },
+  previewImg: {
+    width: '100%', maxHeight: 260, objectFit: 'contain', display: 'block',
+  },
+  removeBtn: {
+    position: 'absolute', top: 8, right: 8,
+    width: 26, height: 26, borderRadius: '50%',
+    background: 'rgba(0,0,0,0.55)', border: '0.5px solid rgba(255,255,255,0.2)',
+    color: '#f0eee8', fontSize: 13, cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  postGrid: {
+    display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16,
+  },
+  postThumb: {
+    position: 'relative', borderRadius: 10, overflow: 'hidden',
+    aspectRatio: '1 / 1', border: '0.5px solid rgba(255,255,255,0.1)',
+  },
+  postThumbImg: {
+    width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+  },
+  postAddBtn: {
+    aspectRatio: '1 / 1', borderRadius: 10,
+    border: '1px dashed rgba(255,255,255,0.18)',
+    background: 'rgba(255,255,255,0.02)', cursor: 'pointer',
+    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    gap: 4, color: 'rgba(240,238,232,0.4)', fontFamily: 'DM Sans, sans-serif', fontSize: 11,
+  },
+  sectionHeading: {
+    fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: 13,
+    color: 'rgba(240,238,232,0.7)', marginTop: 20, marginBottom: 10,
   },
   btn: {
     width: '100%', padding: '13px 0', borderRadius: 10, border: 'none',
