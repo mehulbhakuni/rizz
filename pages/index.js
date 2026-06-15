@@ -622,7 +622,7 @@ export default function Home() {
       <div style={s.page}>
         <div style={s.bgDots} />
 
-        <div style={s.container}>
+        <div style={s.container} className="app-container">
           {/* Header */}
           <header style={s.header}>
             <div>
@@ -1140,6 +1140,23 @@ const styles = {
     color: 'rgba(240,238,232,0.4)', transition: 'all 0.2s',
   },
   tabActive: {
+    background: 'rgba(255,80,130,0.15)',
+    color: '#ff5082',
+    border: '0.5px solid rgba(255,80,130,0.3)',
+  },
+  modeToggle: {
+    display: 'inline-flex', gap: 4,
+    background: 'rgba(255,255,255,0.04)',
+    border: '0.5px solid rgba(255,255,255,0.08)',
+    borderRadius: 10, padding: 4, marginBottom: 16,
+  },
+  modeBtn: {
+    padding: '8px 16px', borderRadius: 7, border: 'none',
+    background: 'transparent', cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif', fontSize: 13, fontWeight: 500,
+    color: 'rgba(240,238,232,0.4)', transition: 'all 0.2s',
+  },
+  modeBtnActive: {
     background: 'rgba(255,80,130,0.15)',
     color: '#ff5082',
     border: '0.5px solid rgba(255,80,130,0.3)',

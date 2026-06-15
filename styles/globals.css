@@ -50,3 +50,17 @@ html, body {
   animation: fadeUp 0.3s ease forwards;
   opacity: 0;
 }
+
+/* Desktop: present the app as a centered card instead of a full-width
+   column with empty space on either side */
+@media (min-width: 720px) {
+  .app-container {
+    max-width: 560px !important;
+    margin: 48px auto !important;
+    padding: 32px !important;
+    background: rgba(255,255,255,0.02);
+    border: 0.5px solid rgba(255,255,255,0.07);
+    border-radius: 20px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.35);
+  }
+}
