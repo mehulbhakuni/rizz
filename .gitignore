@@ -4,3 +4,12 @@ node_modules/
 .env
 *.log
 .DS_Store
+
+# next-pwa generated files (built fresh on each `next build`)
+public/sw.js
+public/sw.js.map
+public/workbox-*.js
+public/workbox-*.js.map
+public/worker-*.js
+public/worker-*.js.map
+public/fallback-*.js

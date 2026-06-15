@@ -17,11 +17,7 @@ export default async function handler(req, res) {
     const visionContent = [
       {
         type: 'text',
-        text: `This ${
-          images.length > 1 ? `set of ${images.length} photos is` : 'photo is'
-        } being prepared for an Instagram ${
-          type === 'story' ? 'Story' : 'Post'
-        }. In 2-3 short sentences, describe the setting, mood, colors, and what's happening — focus on the overall vibe, not tiny details.`,
+        text: `This ${images.length > 1 ? `set of ${images.length} photos is` : 'photo is'} being prepared for an Instagram ${type === 'story' ? 'Story' : 'Post'}. In 2-3 short sentences, describe the setting, mood, colors, and what's happening — focus on the overall vibe, not tiny details.`,
       },
       ...images.map(img => ({
         type: 'image_url',
@@ -29,40 +25,27 @@ export default async function handler(req, res) {
       })),
     ]
 
-    const visionRes = await fetch(
-      'https://api.groq.com/openai/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-          messages: [{ role: 'user', content: visionContent }],
-          max_tokens: 300,
-        }),
-      }
-    )
+    const visionRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+        messages: [{ role: 'user', content: visionContent }],
+        max_tokens: 300,
+      }),
+    })
 
     const visionData = await visionRes.json()
-
     if (!visionRes.ok) {
       throw new Error(visionData.error?.message || 'Vision analysis failed')
     }
-
     const vibe = visionData.choices[0].message.content.trim()
 
-    console.log('========== VIBE ANALYSIS ==========')
-    console.log(vibe)
-    console.log('===================================')
-
-    // 2. Generate captions + song search queries
-    const prompt = `Here's a description of ${
-      images.length > 1 ? 'photos' : 'a photo'
-    } someone is about to post on Instagram as a ${
-      type === 'story' ? 'Story' : 'Post'
-    }:
+    // 2. Generate captions + song search queries from that description
+    const prompt = `Here's a description of ${images.length > 1 ? 'photos' : 'a photo'} someone is about to post on Instagram as a ${type === 'story' ? 'Story' : 'Post'}:
 
 "${vibe}"
 
@@ -74,84 +57,35 @@ Respond with ONLY valid JSON, nothing else, in this exact shape:
 {"captions": ["...", "...", "...", "..."], "songQueries": ["...", "...", "..."]}`
 
     const raw = await callGroq(prompt)
-
-    console.log('========== RAW AI RESPONSE ==========')
-    console.log(raw)
-    console.log('=====================================')
-
     const cleaned = raw.replace(/```json|```/g, '').trim()
 
     let parsed
-
     try {
       parsed = JSON.parse(cleaned)
     } catch (_) {
+      // try to salvage if the model wrapped the JSON in extra text
       const match = cleaned.match(/\{[\s\S]*\}/)
-
-      parsed = match
-        ? JSON.parse(match[0])
-        : { captions: [], songQueries: [] }
+      parsed = match ? JSON.parse(match[0]) : { captions: [], songQueries: [] }
     }
 
-    const captions = Array.isArray(parsed.captions)
-      ? parsed.captions.slice(0, 4)
-      : []
+    const captions = Array.isArray(parsed.captions) ? parsed.captions.slice(0, 4) : []
+    const songQueries = Array.isArray(parsed.songQueries) ? parsed.songQueries.slice(0, 3) : []
 
-    const songQueries = Array.isArray(parsed.songQueries)
-      ? parsed.songQueries.slice(0, 3)
-      : []
-
-    console.log('========== PARSED OUTPUT ==========')
-    console.log('Captions:', captions)
-    console.log('Song Queries:', songQueries)
-    console.log('===================================')
-
-    // 3. Look up each song on Spotify
-
-    console.log('========== SPOTIFY DEBUG ==========')
-
+    // 3. Look up each song on Spotify (skip any that fail/miss)
     const songResults = await Promise.all(
-      songQueries.map(async q => {
+      songQueries.map(async (q) => {
         try {
-          console.log('Searching Spotify for:', q)
-
-          const result = await searchTrack(q)
-
-          console.log('Spotify result for:', q)
-          console.log(result)
-
-          return result
-        } catch (err) {
-          console.error('Spotify search failed for:', q)
-          console.error(err)
-
+          return await searchTrack(q)
+        } catch (_) {
           return null
         }
       })
     )
-
-    console.log('Raw Spotify Results:')
-    console.log(songResults)
-
     const songs = songResults.filter(Boolean)
 
-    console.log('Filtered Songs:')
-    console.log(songs)
-
-    console.log('Songs Found:', songs.length)
-
-    console.log('===================================')
-
-    return res.status(200).json({
-      captions,
-      songs,
-      vibe,
-    })
+    return res.status(200).json({ captions, songs, vibe })
   } catch (e) {
     console.error('Caption error:', e)
-
-    return res.status(500).json({
-      error: 'Could not analyze photo. Please try again.',
-    })
+    return res.status(500).json({ error: 'Could not analyze photo. Please try again.' })
   }
 }

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import Head from 'next/head'
 import { supabase } from '../lib/supabase'
 
@@ -179,6 +179,105 @@ function SongCard({ song }) {
   )
 }
 
+function ReactionChip({ reaction }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    navigator.clipboard.writeText(reaction)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1400)
+  }
+  return (
+    <button onClick={copy} className="fade-up" style={{
+      fontSize: 20, padding: '10px 16px', borderRadius: 12,
+      border: `0.5px solid ${copied ? 'rgba(74,222,128,0.4)' : 'rgba(255,255,255,0.1)'}`,
+      background: copied ? 'rgba(74,222,128,0.1)' : 'rgba(255,255,255,0.04)',
+      cursor: 'pointer', transition: 'all 0.15s',
+      display: 'flex', alignItems: 'center', gap: 6,
+    }}>
+      {reaction}
+      {copied && <span style={{ fontSize: 10, color: '#4ade80', fontFamily: 'DM Sans, sans-serif' }}>✓</span>}
+    </button>
+  )
+}
+
+function InstallButton() {
+  const [deferredPrompt, setDeferredPrompt] = useState(null)
+  const [isInstalled, setIsInstalled] = useState(false)
+  const [isIOS, setIsIOS] = useState(false)
+  const [showIOSHint, setShowIOSHint] = useState(false)
+
+  useEffect(() => {
+    // Already running as an installed app (standalone)?
+    const standalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      window.navigator.standalone === true
+    setIsInstalled(standalone)
+
+    // iOS Safari doesn't support beforeinstallprompt
+    const ua = window.navigator.userAgent
+    setIsIOS(/iPad|iPhone|iPod/.test(ua) && !window.MSStream)
+
+    const handler = (e) => {
+      e.preventDefault()
+      setDeferredPrompt(e)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+
+    const installedHandler = () => {
+      setIsInstalled(true)
+      setDeferredPrompt(null)
+    }
+    window.addEventListener('appinstalled', installedHandler)
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler)
+      window.removeEventListener('appinstalled', installedHandler)
+    }
+  }, [])
+
+  if (isInstalled) return null
+  // Nothing to show on platforms that support neither path
+  if (!deferredPrompt && !isIOS) return null
+
+  const handleClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt()
+      const { outcome } = await deferredPrompt.userChoice
+      if (outcome === 'accepted') setIsInstalled(true)
+      setDeferredPrompt(null)
+    } else if (isIOS) {
+      setShowIOSHint(v => !v)
+    }
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button onClick={handleClick} style={{
+        fontSize: 11, fontWeight: 600, color: '#ff8ab0',
+        padding: '6px 12px', borderRadius: 20,
+        border: '0.5px solid rgba(255,80,130,0.35)',
+        background: 'rgba(255,80,130,0.1)', cursor: 'pointer',
+        fontFamily: 'DM Sans, sans-serif',
+        whiteSpace: 'nowrap',
+      }}>
+        ⬇ Install App
+      </button>
+      {showIOSHint && (
+        <div style={{
+          position: 'absolute', top: '110%', right: 0, zIndex: 20,
+          width: 220, padding: '12px 14px', borderRadius: 10,
+          background: '#2a1620', border: '0.5px solid rgba(255,255,255,0.12)',
+          fontSize: 12.5, lineHeight: 1.5, color: 'rgba(240,238,232,0.8)',
+          fontFamily: 'DM Sans, sans-serif', boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+        }}>
+          Tap the <strong>Share</strong> icon <span style={{ fontSize: 14 }}>⎋</span> in Safari, then choose{' '}
+          <strong>"Add to Home Screen"</strong>.
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Home() {
   const [tab, setTab] = useState('reply')
 
@@ -188,6 +287,15 @@ export default function Home() {
   const [replies, setReplies] = useState([])
   const [replyLoading, setReplyLoading] = useState(false)
   const [replyError, setReplyError] = useState('')
+
+  // Reply mode: 'chat' (paste convo) or 'story' (react to their story)
+  const [replyMode, setReplyMode] = useState('chat')
+  const [storyReplyImage, setStoryReplyImage] = useState(null) // { base64, mimeType, dataUrl }
+  const [storyReplyContext, setStoryReplyContext] = useState('')
+  const [storyReplyResult, setStoryReplyResult] = useState(null) // { replies, reactions, vibe }
+  const [storyReplyLoading, setStoryReplyLoading] = useState(false)
+  const [storyReplyError, setStoryReplyError] = useState('')
+  const storyReplyFileRef = useRef()
 
   // Opener state
   const [profileDesc, setProfileDesc] = useState('')
@@ -354,6 +462,68 @@ export default function Home() {
     }
   }
 
+  const handleStoryReplyImage = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setStoryReplyResult(null)
+    setStoryReplyError('')
+    try {
+      const img = await compressImage(file)
+      setStoryReplyImage(img)
+    } catch (_) {
+      setStoryReplyError('Could not read that image. Try a different one.')
+    }
+    e.target.value = ''
+  }
+
+  // Allow pasting a story screenshot directly with Ctrl+V / Cmd+V
+  const handleStoryReplyPaste = async (e) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) {
+          e.preventDefault()
+          setStoryReplyResult(null)
+          setStoryReplyError('')
+          try {
+            const img = await compressImage(file)
+            setStoryReplyImage(img)
+          } catch (_) {
+            setStoryReplyError('Could not read that image. Try a different one.')
+          }
+        }
+        break
+      }
+    }
+  }
+
+  const generateStoryReply = async () => {
+    if (!storyReplyImage) return
+    setStoryReplyLoading(true)
+    setStoryReplyError('')
+    setStoryReplyResult(null)
+    try {
+      const res = await fetch('/api/story-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: storyReplyImage.base64,
+          mimeType: storyReplyImage.mimeType,
+          tone: replyTone,
+          context: storyReplyContext,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setStoryReplyResult(data)
+    } catch (e) {
+      setStoryReplyError(e.message || 'Something went wrong. Try again.')
+    }
+    setStoryReplyLoading(false)
+  }
+
   const generateReplies = async () => {
     if (!convo.trim()) return
     setReplyLoading(true)
@@ -425,8 +595,28 @@ export default function Home() {
       <Head>
         <title>RIZZ — AI Dating Assistant</title>
         <meta name="description" content="AI-powered dating replies, openers, and bios. Get more matches." />
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
         <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💘</text></svg>" />
+
+        {/* PWA manifest */}
+        <link rel="manifest" href="/manifest.json" />
+
+        {/* Theme / background colors (Android address bar, splash) */}
+        <meta name="theme-color" content="#1a0e16" />
+        <meta name="background-color" content="#1a0e16" />
+
+        {/* iOS-specific PWA support */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="RIZZ" />
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+
+        {/* iOS splash screens (uses the app icon centered on theme background) */}
+        <link rel="apple-touch-startup-image" href="/icons/icon-512.png" />
+
+        {/* Android Chrome */}
+        <meta name="mobile-web-app-capable" content="yes" />
       </Head>
 
       <div style={s.page}>
@@ -439,7 +629,10 @@ export default function Home() {
               <div style={s.logo}>RI<span style={s.logoAccent}>ZZ</span></div>
               <div style={s.tagline}>Your AI Dating Coach</div>
             </div>
-            <div style={s.headerBadge}>✦ Find your perfect reply</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <InstallButton />
+              <div style={s.headerBadge}>✦ Find your perfect reply</div>
+            </div>
           </header>
 
           {/* Tabs */}
@@ -461,21 +654,65 @@ export default function Home() {
           {/* ── REPLY TAB ── */}
           {tab === 'reply' && (
             <div>
-              <div style={s.row}>
-                <label style={s.label}>Paste your convo</label>
-                <button onClick={() => fileRef.current.click()} style={s.ocrBtn}>
-                  {ocrLoading ? '⏳ Reading…' : '📸 Upload screenshot'}
+              {/* Mode toggle */}
+              <div style={s.modeToggle}>
+                <button onClick={() => setReplyMode('chat')}
+                  style={{ ...s.modeBtn, ...(replyMode === 'chat' ? s.modeBtnActive : {}) }}>
+                  💬 Chat
                 </button>
-                <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleOCR} />
+                <button onClick={() => setReplyMode('story')}
+                  style={{ ...s.modeBtn, ...(replyMode === 'story' ? s.modeBtnActive : {}) }}>
+                  📖 Their Story
+                </button>
               </div>
 
-              <textarea
-                value={convo}
-                onChange={e => setConvo(e.target.value)}
-                onPaste={handlePaste}
-                placeholder={`e.g.\nThem: hey! finally matched lol\nYou: haha right, what took you so long\nThem: okay fair, so what do you do for fun?\n\n(Tip: copy a screenshot and press Ctrl+V / Cmd+V here)`}
-                style={s.textarea}
-              />
+              {replyMode === 'chat' ? (
+                <>
+                  <div style={s.row}>
+                    <label style={s.label}>Paste your convo</label>
+                    <button onClick={() => fileRef.current.click()} style={s.ocrBtn}>
+                      {ocrLoading ? '⏳ Reading…' : '📸 Upload screenshot'}
+                    </button>
+                    <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleOCR} />
+                  </div>
+
+                  <textarea
+                    value={convo}
+                    onChange={e => setConvo(e.target.value)}
+                    onPaste={handlePaste}
+                    placeholder={`e.g.\nThem: hey! finally matched lol\nYou: haha right, what took you so long\nThem: okay fair, so what do you do for fun?\n\n(Tip: copy a screenshot and press Ctrl+V / Cmd+V here)`}
+                    style={s.textarea}
+                  />
+                </>
+              ) : (
+                <>
+                  <label style={s.label}>Their story</label>
+                  <div style={s.uploadBox} onClick={() => storyReplyFileRef.current.click()} onPaste={handleStoryReplyPaste} tabIndex={0}>
+                    {storyReplyImage ? (
+                      <>
+                        <img src={storyReplyImage.dataUrl} alt="" style={s.previewImg} />
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setStoryReplyImage(null); setStoryReplyResult(null) }}
+                          style={s.removeBtn} title="Remove photo">✕</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: 28 }}>📖</span>
+                        <span>Tap to upload, or click here and press Ctrl+V / Cmd+V</span>
+                      </>
+                    )}
+                  </div>
+                  <input ref={storyReplyFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleStoryReplyImage} />
+
+                  <label style={{ ...s.label, marginTop: 16 }}>Extra context (optional)</label>
+                  <textarea
+                    value={storyReplyContext}
+                    onChange={e => setStoryReplyContext(e.target.value)}
+                    placeholder="e.g. We've matched but haven't met yet, keep it playful but not too forward."
+                    style={{ ...s.textarea, minHeight: 70 }}
+                  />
+                </>
+              )}
 
               <label style={{ ...s.label, marginTop: 16 }}>Pick your vibe</label>
               <div style={s.toneGrid}>
@@ -494,22 +731,62 @@ export default function Home() {
                 ))}
               </div>
 
-              <button onClick={generateReplies} disabled={replyLoading || !convo.trim()} style={s.btn}>
-                {replyLoading ? 'Generating…' : 'Generate Replies ✦'}
-              </button>
+              {replyMode === 'chat' ? (
+                <>
+                  <button onClick={generateReplies} disabled={replyLoading || !convo.trim()} style={s.btn}>
+                    {replyLoading ? 'Generating…' : 'Generate Replies ✦'}
+                  </button>
 
-              {replyLoading && <LoadingDots />}
-              {replyError && <p style={s.error}>{replyError}</p>}
-              {replies.length > 0 && (
-                <div style={s.results}>
-                  {replies.map((r, i) => (
-                    <ReplyCard key={i} reply={r} tone={replyTone} index={i}
-                      conversation={convo} type="reply" />
-                  ))}
-                </div>
+                  {replyLoading && <LoadingDots />}
+                  {replyError && <p style={s.error}>{replyError}</p>}
+                  {replies.length > 0 && (
+                    <div style={s.results}>
+                      {replies.map((r, i) => (
+                        <ReplyCard key={i} reply={r} tone={replyTone} index={i}
+                          conversation={convo} type="reply" />
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <button onClick={generateStoryReply} disabled={storyReplyLoading || !storyReplyImage} style={s.btn}>
+                    {storyReplyLoading ? 'Reading their story…' : 'Get Replies & Reactions ✦'}
+                  </button>
+
+                  {storyReplyLoading && <LoadingDots />}
+                  {storyReplyError && <p style={s.error}>{storyReplyError}</p>}
+
+                  {storyReplyResult && (
+                    <>
+                      {storyReplyResult.reactions?.length > 0 && (
+                        <>
+                          <div style={s.sectionHeading}>Quick reactions</div>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+                            {storyReplyResult.reactions.map((r, i) => (
+                              <ReactionChip key={i} reaction={r} />
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {storyReplyResult.replies?.length > 0 && (
+                        <>
+                          <div style={s.sectionHeading}>Reply ideas</div>
+                          <div style={s.results}>
+                            {storyReplyResult.replies.map((r, i) => (
+                              <ReplyCard key={i} reply={r} tone={replyTone} index={i}
+                                conversation={storyReplyResult.vibe || ''} type="story-reply" />
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+                </>
               )}
             </div>
           )}
+
 
           {/* ── OPENER TAB ── */}
           {tab === 'opener' && (
